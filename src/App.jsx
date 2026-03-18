@@ -1,0 +1,415 @@
+import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
+import {
+  Upload,
+  FileSpreadsheet,
+  Download,
+  PieChart as PieIcon,
+  BarChart2,
+  AlertCircle,
+  Search,
+  Filter,
+  School,
+  MapPin,
+  ClipboardList
+} from 'lucide-react';
+
+const COLORS = ['#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#34d399', '#818cf8'];
+
+export default function App() {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Search and Filter status
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterDRE, setFilterDRE] = useState('');
+  const [filterActivity, setFilterActivity] = useState('');
+
+  const processFile = (file) => {
+    setLoading(true);
+    setError(null);
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const bstr = e.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const jsonData = XLSX.utils.sheet_to_json(ws);
+
+        if (jsonData.length === 0) {
+          throw new Error("O arquivo está vazio.");
+        }
+
+        const cleanedData = jsonData.map(row => {
+          const newRow = {};
+          Object.keys(row).forEach(key => {
+            const newKey = key.replace(/\n/g, ' ').trim();
+            newRow[newKey] = row[key];
+          });
+          return newRow;
+        });
+
+        setData(cleanedData);
+      } catch (err) {
+        setError("Erro ao processar o arquivo: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    reader.onerror = () => {
+      setError("Erro ao ler o arquivo.");
+      setLoading(false);
+    };
+
+    reader.readAsBinaryString(file);
+  };
+
+  const onFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      processFile(e.target.files[0]);
+    }
+  };
+
+  // Memoized Filtered Data
+  const filteredData = useMemo(() => {
+    return data.filter(row => {
+      const matchesSearch = searchTerm === '' ||
+        Object.values(row).some(val =>
+          String(val).toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      const matchesDRE = filterDRE === '' || row['DRE'] === filterDRE;
+      const matchesActivity = filterActivity === '' || row['ATIVIDADE'] === filterActivity;
+
+      return matchesSearch && matchesDRE && matchesActivity;
+    });
+  }, [data, searchTerm, filterDRE, filterActivity]);
+
+  const dreList = useMemo(() => [...new Set(data.map(r => r.DRE))].filter(Boolean).sort(), [data]);
+  const activityList = useMemo(() => [...new Set(data.map(r => r.ATIVIDADE))].filter(Boolean).sort(), [data]);
+
+  const getDREData = () => {
+    const counts = {};
+    filteredData.forEach(row => {
+      const dre = row['DRE'] || 'Não Definido';
+      counts[dre] = (counts[dre] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  };
+
+  const getCargoData = () => {
+    const counts = {};
+    filteredData.forEach(row => {
+      const cargo = row['ATIVIDADE'] || 'Não Definido';
+      counts[cargo] = (counts[cargo] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  };
+
+  const getEscolaData = () => {
+    const counts = {};
+    filteredData.forEach(row => {
+      const escola = row['NOME DA ESCOLA'] || 'Não Definido';
+      counts[escola] = (counts[escola] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  };
+
+  const exportReport = () => {
+    const reportData = filteredData.map(row => ({
+      'DRE': row['DRE'],
+      'ATIVIDADE': row['ATIVIDADE'],
+      'LOTAÇÃO': row['NOME DA ESCOLA']
+    })).sort((a, b) => {
+      if (a.DRE !== b.DRE) return a.DRE.localeCompare(b.DRE);
+      return a.ATIVIDADE.localeCompare(b.ATIVIDADE);
+    });
+
+    const ws = XLSX.utils.json_to_sheet(reportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
+    XLSX.writeFile(wb, "Relatorio_Mapeamento_Vagas_Urgente.xlsx");
+  };
+
+  const dreDataArr = getDREData();
+  const cargoDataArr = getCargoData();
+  const escolaDataArr = getEscolaData();
+
+  // Grouped Data for Table (Excluding Date)
+  const groupedTableData = useMemo(() => {
+    const groups = {};
+    filteredData.forEach(row => {
+      const key = `${row['DRE']}|${row['ATIVIDADE']}|${row['NOME DA ESCOLA']}`;
+      if (!groups[key]) {
+        groups[key] = { ...row, count: 0 };
+      }
+      groups[key].count += 1;
+    });
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [filteredData]);
+
+  // Metrics
+  const totalVagas = filteredData.length;
+  const uniqueEscolas = new Set(filteredData.map(r => r['NOME DA ESCOLA'])).size;
+  const uniqueDREs = new Set(filteredData.map(r => r['DRE'])).size;
+
+  return (
+    <div className="animate-fade-in">
+      <header>
+        <div>
+          <h1>MAPEAMENTO DE VAGAS</h1>
+          <p className="subtitle">Visualização analítica da rede estadual (SEDUC)</p>
+        </div>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          {data.length > 0 && (
+            <button className="btn btn-primary" onClick={exportReport}>
+              <Download size={20} /> Exportar Filtrados
+            </button>
+          )}
+        </div>
+      </header>
+
+      {error && (
+        <div className="glass-card" style={{ borderLeft: '4px solid var(--accent)', marginBottom: '2rem', background: 'rgba(239, 68, 68, 0.1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <AlertCircle color="#f87171" size={24} />
+            <span style={{ color: '#f87171' }}>{error}</span>
+          </div>
+        </div>
+      )}
+
+      {data.length === 0 ? (
+        <div className="glass-card empty-state">
+          <Upload size={64} color="var(--primary)" style={{ opacity: 0.5 }} />
+          <div>
+            <h2>Comece aqui</h2>
+            <p className="subtitle" style={{ marginTop: '0.5rem' }}>Carregue o arquivo BASEPRINCIPAL.xlsx para gerar os gráficos</p>
+          </div>
+          <label className="btn btn-upload">
+            <FileSpreadsheet size={20} /> Selecionar Arquivo
+            <input type="file" accept=".xlsx, .xls, .csv" onChange={onFileChange} style={{ display: 'none' }} />
+          </label>
+        </div>
+      ) : (
+        <>
+          {/* Filters and Search Bar */}
+          <div className="glass-card" style={{ marginBottom: '2rem', padding: '1rem' }}>
+            <div className="filters-container" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Pesquisar lotação, DRE, vaga..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem 0.75rem 0.75rem 2.5rem',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                    color: 'var(--text)',
+                    fontSize: '0.9rem'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <Filter size={18} color="var(--text-muted)" />
+                <select
+                  value={filterDRE}
+                  onChange={(e) => setFilterDRE(e.target.value)}
+                  style={{ background: '#1e293b', color: 'var(--text)', border: '1px solid var(--border)', padding: '0.5rem', borderRadius: '0.5rem' }}
+                >
+                  <option value="">Todas DREs</option>
+                  {dreList.map(dre => <option key={dre} value={dre}>{dre}</option>)}
+                </select>
+                <select
+                  value={filterActivity}
+                  onChange={(e) => setFilterActivity(e.target.value)}
+                  style={{ background: '#1e293b', color: 'var(--text)', border: '1px solid var(--border)', padding: '0.5rem', borderRadius: '0.5rem' }}
+                >
+                  <option value="">Todas Atividades</option>
+                  {activityList.map(act => <option key={act} value={act}>{act}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Metrics Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+            <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              <div style={{ background: 'rgba(37, 99, 235, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
+                <ClipboardList color="var(--primary)" size={32} />
+              </div>
+              <div>
+                <p className="subtitle">Total de Vagas</p>
+                <h2 style={{ fontSize: '2rem' }}>{totalVagas}</h2>
+              </div>
+            </div>
+            <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              <div style={{ background: 'rgba(167, 139, 250, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
+                <School color="var(--accent)" size={32} />
+              </div>
+              <div>
+                <p className="subtitle">Lotações</p>
+                <h2 style={{ fontSize: '2rem' }}>{uniqueEscolas}</h2>
+              </div>
+            </div>
+            <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+              <div style={{ background: 'rgba(16, 185, 129, 0.2)', padding: '1rem', borderRadius: '1rem' }}>
+                <MapPin color="var(--success)" size={32} />
+              </div>
+              <div>
+                <p className="subtitle">DREs Ativas</p>
+                <h2 style={{ fontSize: '2rem' }}>{uniqueDREs}</h2>
+              </div>
+            </div>
+          </div>
+
+          <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
+            <div className="glass-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                <PieIcon size={24} color="var(--primary)" />
+                <h3 style={{ fontSize: '1.25rem' }}>Vagas por DRE</h3>
+              </div>
+              <div className="chart-container">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={dreDataArr} margin={{ left: 40, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <XAxis type="number" stroke="var(--text-muted)" />
+                    <YAxis dataKey="name" type="category" stroke="var(--text-muted)" fontSize={11} width={100} />
+                    <Tooltip
+                      contentStyle={{ background: '#1e293b', border: '1px solid var(--border)', borderRadius: '8px' }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                      {dreDataArr.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="glass-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                <School size={24} color="var(--success)" />
+                <h3 style={{ fontSize: '1.25rem' }}>Top 10 Lotações</h3>
+              </div>
+              <div className="chart-container">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={escolaDataArr} margin={{ left: 60, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <XAxis type="number" stroke="var(--text-muted)" />
+                    <YAxis dataKey="name" type="category" stroke="var(--text-muted)" fontSize={9} width={150} />
+                    <Tooltip
+                      contentStyle={{ background: '#1e293b', border: '1px solid var(--border)', borderRadius: '8px' }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                    <Bar dataKey="value" fill="var(--success)" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ gridColumn: 'span 2' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                <BarChart2 size={24} color="var(--accent)" />
+                <h3 style={{ fontSize: '1.25rem' }}>Distribuição por Cargo (Top 10)</h3>
+              </div>
+              <div className="chart-container">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={cargoDataArr}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={10} tick={{ fill: 'var(--text-muted)' }} />
+                    <YAxis stroke="var(--text-muted)" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{ background: '#1e293b', border: '1px solid var(--border)', borderRadius: '8px' }}
+                      itemStyle={{ color: '#fff' }}
+                    />
+                    <Bar dataKey="value" fill="var(--accent)" radius={[4, 4, 0, 0]}>
+                      {cargoDataArr.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.5rem', borderRadius: '0.5rem' }}>
+                  <ClipboardList size={20} color="var(--success)" />
+                </div>
+                <h3 style={{ fontSize: '1.25rem' }}>Lista Detalhada de Vagas</h3>
+              </div>
+              <span className="subtitle">{filteredData.length} resultados encontrados</span>
+            </div>
+            <div className="data-table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>DRE</th>
+                    <th>Cargo/Atividade</th>
+                    <th>LOTAÇÃO</th>
+                    <th>Qtd Vagas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedTableData.slice(0, 50).map((row, i) => (
+                    <tr key={i}>
+                      <td><span style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{row['DRE']}</span></td>
+                      <td>{row['ATIVIDADE']}</td>
+                      <td style={{ fontWeight: 500 }}>{row['NOME DA ESCOLA']}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{row.count}</td>
+                    </tr>
+                  ))}
+                  {groupedTableData.length === 0 && (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                        Nenhum resultado encontrado para os filtros selecionados.
+                      </td>
+                    </tr>
+                  )}
+                  {groupedTableData.length > 50 && (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>
+                        Mostrando os primeiros 50 grupos. Use a exportação para ver todos os detalhes.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
