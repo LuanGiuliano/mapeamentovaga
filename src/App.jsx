@@ -38,6 +38,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDRE, setFilterDRE] = useState('');
   const [filterActivity, setFilterActivity] = useState('');
+  const [viewMode, setViewMode] = useState('detalhado'); // 'detalhado' | 'resumo'
 
   const processFile = (file) => {
     setLoading(true);
@@ -201,6 +202,19 @@ export default function App() {
       const key = `${row['DRE']}|${row['ATIVIDADE']}|${row['NOME DA ESCOLA']}`;
       if (!groups[key]) {
         groups[key] = { ...row, count: 0 };
+      }
+      groups[key].count += 1;
+    });
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [filteredData]);
+
+  // Grouped by DRE + ATIVIDADE only (summary view)
+  const summaryTableData = useMemo(() => {
+    const groups = {};
+    filteredData.forEach(row => {
+      const key = `${row['DRE']}|${row['ATIVIDADE']}`;
+      if (!groups[key]) {
+        groups[key] = { DRE: row['DRE'], ATIVIDADE: row['ATIVIDADE'], count: 0 };
       }
       groups[key].count += 1;
     });
@@ -408,7 +422,23 @@ export default function App() {
                 <h3 style={{ fontSize: '1.25rem' }}>Lista Detalhada de Vagas</h3>
                 <span className="subtitle" style={{ marginTop: '0.1rem' }}>{filteredData.length} vagas</span>
               </div>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                {/* View toggle */}
+                <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: '0.5rem', overflow: 'hidden' }}>
+                  <button
+                    onClick={() => setViewMode('detalhado')}
+                    style={{ padding: '0.4rem 0.85rem', fontSize: '0.8rem', background: viewMode === 'detalhado' ? 'var(--primary)' : 'transparent', color: viewMode === 'detalhado' ? '#fff' : 'var(--text-muted)', border: 'none', cursor: 'pointer' }}
+                  >
+                    Detalhado
+                  </button>
+                  <button
+                    onClick={() => setViewMode('resumo')}
+                    style={{ padding: '0.4rem 0.85rem', fontSize: '0.8rem', background: viewMode === 'resumo' ? 'var(--primary)' : 'transparent', color: viewMode === 'resumo' ? '#fff' : 'var(--text-muted)', border: 'none', cursor: 'pointer' }}
+                  >
+                    Por DRE/Profissão
+                  </button>
+                </div>
+                {/* Export buttons */}
                 <button className="btn btn-primary" onClick={exportListaExcel} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
                   <Download size={16} /> Excel
                 </button>
@@ -417,42 +447,61 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="data-table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>DRE</th>
-                    <th>Cargo/Atividade</th>
-                    <th>LOTAÇÃO</th>
-                    <th>Qtd Vagas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupedTableData.slice(0, 50).map((row, i) => (
-                    <tr key={i}>
-                      <td><span style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{row['DRE']}</span></td>
-                      <td>{row['ATIVIDADE']}</td>
-                      <td style={{ fontWeight: 500 }}>{row['NOME DA ESCOLA']}</td>
-                      <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{row.count}</td>
-                    </tr>
-                  ))}
-                  {groupedTableData.length === 0 && (
+
+            {viewMode === 'detalhado' ? (
+              <div className="data-table-container">
+                <table>
+                  <thead>
                     <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                        Nenhum resultado encontrado para os filtros selecionados.
-                      </td>
+                      <th>DRE</th>
+                      <th>Cargo/Atividade</th>
+                      <th>LOTAÇÃO</th>
+                      <th>Qtd Vagas</th>
                     </tr>
-                  )}
-                  {groupedTableData.length > 50 && (
+                  </thead>
+                  <tbody>
+                    {groupedTableData.slice(0, 50).map((row, i) => (
+                      <tr key={i}>
+                        <td><span style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{row['DRE']}</span></td>
+                        <td>{row['ATIVIDADE']}</td>
+                        <td style={{ fontWeight: 500 }}>{row['NOME DA ESCOLA']}</td>
+                        <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{row.count}</td>
+                      </tr>
+                    ))}
+                    {groupedTableData.length === 0 && (
+                      <tr><td colSpan="4" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Nenhum resultado encontrado.</td></tr>
+                    )}
+                    {groupedTableData.length > 50 && (
+                      <tr><td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>Mostrando os primeiros 50 grupos de {groupedTableData.length}. Use os botões de exportação acima para ver todos os registros.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="data-table-container">
+                <table>
+                  <thead>
                     <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>
-                        Mostrando os primeiros 50 grupos de {groupedTableData.length}. Use os botões de exportação acima para ver todos os registros.
-                      </td>
+                      <th>DRE</th>
+                      <th>Profissão / Cargo</th>
+                      <th>Qtd Vagas</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {summaryTableData.map((row, i) => (
+                      <tr key={i}>
+                        <td><span style={{ background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' }}>{row['DRE']}</span></td>
+                        <td>{row['ATIVIDADE']}</td>
+                        <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{row.count}</td>
+                      </tr>
+                    ))}
+                    {summaryTableData.length === 0 && (
+                      <tr><td colSpan="3" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Nenhum resultado encontrado.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
