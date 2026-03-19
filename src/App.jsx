@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   BarChart,
   Bar,
@@ -21,7 +23,8 @@ import {
   Filter,
   School,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  FileText
 } from 'lucide-react';
 
 const COLORS = ['#60a5fa', '#a78bfa', '#fbbf24', '#f87171', '#34d399', '#818cf8'];
@@ -150,6 +153,41 @@ export default function App() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
     XLSX.writeFile(wb, "Relatorio_Mapeamento_Vagas_Urgente.xlsx");
+  };
+
+  const exportListaExcel = () => {
+    const rows = groupedTableData.map(row => ({
+      'DRE': row['DRE'],
+      'Cargo/Atividade': row['ATIVIDADE'],
+      'LOTAÇÃO': row['NOME DA ESCOLA'],
+      'Qtd Vagas': row.count
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Lista Detalhada");
+    XLSX.writeFile(wb, "Lista_Detalhada_Vagas.xlsx");
+  };
+
+  const exportListaPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text('Lista Detalhada de Vagas - SEDUC', 14, 15);
+    doc.setFontSize(9);
+    doc.text(`Total de ${filteredData.length} vagas agrupadas em ${groupedTableData.length} registros`, 14, 22);
+    autoTable(doc, {
+      startY: 27,
+      head: [['DRE', 'Cargo/Atividade', 'LOTAÇÃO', 'Qtd Vagas']],
+      body: groupedTableData.map(row => [
+        row['DRE'] || '',
+        row['ATIVIDADE'] || '',
+        row['NOME DA ESCOLA'] || '',
+        row.count
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [37, 99, 235], textColor: 255 },
+      alternateRowStyles: { fillColor: [245, 247, 250] }
+    });
+    doc.save('Lista_Detalhada_Vagas.pdf');
   };
 
   const dreDataArr = getDREData();
@@ -362,14 +400,22 @@ export default function App() {
           </div>
 
           <div className="glass-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.5rem', borderRadius: '0.5rem' }}>
                   <ClipboardList size={20} color="var(--success)" />
                 </div>
                 <h3 style={{ fontSize: '1.25rem' }}>Lista Detalhada de Vagas</h3>
+                <span className="subtitle" style={{ marginTop: '0.1rem' }}>{filteredData.length} vagas</span>
               </div>
-              <span className="subtitle">{filteredData.length} resultados encontrados</span>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-primary" onClick={exportListaExcel} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+                  <Download size={16} /> Excel
+                </button>
+                <button className="btn" onClick={exportListaPDF} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                  <FileText size={16} /> PDF
+                </button>
+              </div>
             </div>
             <div className="data-table-container">
               <table>
@@ -400,7 +446,7 @@ export default function App() {
                   {groupedTableData.length > 50 && (
                     <tr>
                       <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>
-                        Mostrando os primeiros 50 grupos. Use a exportação para ver todos os detalhes.
+                        Mostrando os primeiros 50 grupos de {groupedTableData.length}. Use os botões de exportação acima para ver todos os registros.
                       </td>
                     </tr>
                   )}
